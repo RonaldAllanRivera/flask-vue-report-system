@@ -1,0 +1,53 @@
+# Root
+.DS_Store
+Thumbs.db
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+.env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Flask / Alembic
+instance/
+*.sqlite
+
+# Backend env (keep example committed)
+backend/.env
+!backend/.env.example
+
+# Node / Vue
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.eslintcache
+
+# Frontend env (keep example committed)
+frontend/.env
+!frontend/.env.example
+frontend/.env.local
+frontend/.env.*.local
+
+# Editor/OS
+.vscode/
+.idea/
+
+# Build artifacts
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Docker
+*.pid
