@@ -1,6 +1,25 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2025-10-06
+### Added
+- Frontend client-side validation for uploads:
+  - Google Data: block JSON and wrong CSV schema; show inserted count.
+  - Binom Google: validate semicolon CSV with Name/Revenue; show inserted count.
+- Downloadable sample CSV for Google at `/samples/google_sample.csv` and button on `/google`.
+- Favicon link to reduce 404 favicon requests.
+
+### Changed
+- UI: standardized control heights across inputs/selects/buttons/file inputs (`h-10 text-sm`).
+- README: recent changes, sample data, troubleshooting, and API behavior sections.
+
+### Fixed
+- Backend ingestion robustness:
+  - Skip leading title/date lines before header in Google weekly exports.
+  - Accept header variants and currency-formatted numbers.
+  - Return HTTP 400 with `status: "no_rows"` when no rows inserted.
+- Batch counts: label SQL `count(*)` as `row_count` to avoid `Row.count()` collision; API returns correct `count`.
+
 ## [0.3.0] - 2025-10-06
 ### Added
 - Phase 2: Ingestion + Frontend + Google Binom Report

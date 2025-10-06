@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 from io import TextIOWrapper
+import re
 from typing import Iterable
 
 from flask import Blueprint, jsonify, request, g
@@ -38,22 +39,97 @@ def _normalize_header(h: str) -> str:
 
 
 def _iter_csv(file_storage, delimiter: str | None = None) -> Iterable[dict]:
+    """Yield normalized CSV rows.
+
+    Supports files with leading title/date lines (e.g., Google weekly exports) by
+    skipping to the first delimited header line before constructing the reader.
+    """
     text = TextIOWrapper(file_storage.stream, encoding="utf-8", errors="replace")
-    # Try to sniff delimiter if not provided
+    content = text.read()
+    lines = content.splitlines()
+
+    # Determine delimiter if not provided
     if delimiter is None:
-        sample = text.read(2048)
-        text.seek(0)
+        sample = "\n".join(lines[:50])
         try:
             sniffed = csv.Sniffer().sniff(sample, delimiters=",;\t")
             delimiter = sniffed.delimiter
         except Exception:
             delimiter = ","
-    reader = csv.DictReader(text, delimiter=delimiter)
+
+    # Find first plausible header line with the chosen delimiter
+    header_idx = None
+    for i, l in enumerate(lines):
+        if delimiter in l:
+            # quick heuristic: at least 2 columns
+            try:
+                cols = next(csv.reader([l], delimiter=delimiter))
+            except Exception:
+                continue
+            if len(cols) >= 2:
+                header_idx = i
+                break
+    if header_idx is None:
+        # No header found; return empty iterator
+        return []
+
+    sliced = "\n".join(lines[header_idx:])
+    reader = csv.DictReader(sliced.splitlines(), delimiter=delimiter)
     reader.fieldnames = [
         _normalize_header(h) for h in (reader.fieldnames or [])
     ]
     for row in reader:
         yield {k: (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
+
+
+_CURRENCY_RE = re.compile(r"[\s,\u00A0]")
+
+def _parse_float(val: str | None) -> float | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        try:
+            return float(val)
+        except Exception:
+            return None
+    s = str(val).strip()
+    if not s:
+        return None
+    # Handle negatives in parentheses: (123.45) => -123.45
+    negative = s.startswith("(") and s.endswith(")")
+    if negative:
+        s = s[1:-1]
+    # Remove currency symbols and thousand separators
+    s = s.replace("$", "").replace("€", "").replace("£", "")
+    s = _CURRENCY_RE.sub("", s)
+    # Remove trailing currency codes
+    for code in ("USD", "EUR", "GBP", "usd", "eur", "gbp"):
+        if s.endswith(code):
+            s = s[: -len(code)].strip()
+    try:
+        num = float(s)
+        return -num if negative else num
+    except Exception:
+        return None
+
+
+def _parse_int(val: str | None) -> int | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        try:
+            return int(val)
+        except Exception:
+            return None
+    s = str(val).strip()
+    if not s:
+        return None
+    # Remove thousand separators and any currency-like residue
+    s = _CURRENCY_RE.sub("", s)
+    try:
+        return int(s)
+    except Exception:
+        return None
 
 
 @bp.post("/uploads/<source>")
@@ -95,15 +171,28 @@ def upload_source(source: str):
     # Google CSV ingestion
     if source == "google":
         for row in _iter_csv(f):
-            account = row.get("account") or row.get("account_name")
-            campaign = row.get("campaign")
+            # Try multiple header variants
+            account = (
+                row.get("account")
+                or row.get("account_name")
+                or row.get("account_descriptive_name")
+            )
+            campaign = row.get("campaign") or row.get("campaign_name")
+            if not campaign:
+                for k in row.keys():
+                    if "campaign" in k:
+                        campaign = row.get(k)
+                        break
+            # Cost may appear as cost_(usd) or similar
             cost_s = row.get("cost")
+            if cost_s is None:
+                for k in row.keys():
+                    if "cost" in k:
+                        cost_s = row.get(k)
+                        break
             if not campaign:
                 continue
-            try:
-                cost = float(cost_s) if cost_s not in (None, "") else None
-            except Exception:
-                cost = None
+            cost = _parse_float(cost_s)
             db.add(
                 GoogleData(
                     account_name=account,
@@ -124,14 +213,8 @@ def upload_source(source: str):
             revenue_s = row.get("revenue")
             if not name:
                 continue
-            try:
-                leads = int(leads_s) if leads_s not in (None, "") else None
-            except Exception:
-                leads = None
-            try:
-                revenue = float(revenue_s) if revenue_s not in (None, "") else None
-            except Exception:
-                revenue = None
+            leads = _parse_int(leads_s)
+            revenue = _parse_float(revenue_s)
             # Skip rows with non-positive revenue to match behavior
             if revenue is not None and revenue <= 0:
                 continue
@@ -151,15 +234,34 @@ def upload_source(source: str):
         # Other sources to be implemented in Phase 3
         return jsonify({"status": "accepted", "source": source, "inserted": 0}), 202
 
-    return jsonify({
-        "status": "ok",
-        "source": source,
-        "upload_id": upload.id,
-        "inserted": inserted,
-        "date_from": str(date_from),
-        "date_to": str(date_to),
-        "report_type": report_type,
-    })
+    if inserted == 0:
+        # Provide a helpful error explaining likely header mismatch
+        return (
+            jsonify(
+                {
+                    "error": "no rows inserted; check CSV headers match expected fields",
+                    "expected": {
+                        "google": ["campaign", "cost"],
+                        "binom-google": ["name", "revenue"],
+                    }.get(source, []),
+                    "status": "no_rows",
+                    "source": source,
+                }
+            ),
+            400,
+        )
+
+    return jsonify(
+        {
+            "status": "ok",
+            "source": source,
+            "upload_id": upload.id,
+            "inserted": inserted,
+            "date_from": str(date_from),
+            "date_to": str(date_to),
+            "report_type": report_type,
+        }
+    )
 
 
 @bp.get("/<source>/batches")
@@ -175,7 +277,7 @@ def list_batches(source: str):
                 GoogleData.date_from,
                 GoogleData.date_to,
                 GoogleData.report_type,
-                func.count().label("count"),
+                func.count().label("row_count"),
             )
             .group_by(GoogleData.date_from, GoogleData.date_to, GoogleData.report_type)
             .order_by(GoogleData.date_from.desc())
@@ -186,7 +288,7 @@ def list_batches(source: str):
                 "date_from": str(r.date_from),
                 "date_to": str(r.date_to),
                 "report_type": r.report_type,
-                "count": r.count,
+                "count": r.row_count,
             }
             for r in db.execute(stmt)
         ]
@@ -196,7 +298,7 @@ def list_batches(source: str):
                 BinomGoogleSpentData.date_from,
                 BinomGoogleSpentData.date_to,
                 BinomGoogleSpentData.report_type,
-                func.count().label("count"),
+                func.count().label("row_count"),
             )
             .group_by(
                 BinomGoogleSpentData.date_from,
@@ -211,7 +313,7 @@ def list_batches(source: str):
                 "date_from": str(r.date_from),
                 "date_to": str(r.date_to),
                 "report_type": r.report_type,
-                "count": r.count,
+                "count": r.row_count,
             }
             for r in db.execute(stmt)
         ]

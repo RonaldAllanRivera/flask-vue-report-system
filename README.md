@@ -122,6 +122,48 @@ curl http://localhost:5000/api/invoices
 curl -X POST http://localhost:5000/api/invoices -H "Content-Type: application/json" -d "{}"
 ```
 
+## Recent Changes (2025-10-06)
+
+- **[ingestion robustness]** `backend/app/routes/uploads.py`
+  - Skips leading title/date lines in Google weekly exports when parsing CSV.
+  - Accepts multiple header variants (e.g., `campaign`, `campaign_name`, any field containing `cost`).
+  - Parses currency formats (commas, spaces, symbols, parentheses negatives).
+  - Returns HTTP 400 with helpful error when no rows are inserted (instead of silent OK).
+- **[batch counts fix]** Avoided collision with `Row.count()` by aliasing SQL `count(*)` to `row_count` and returning that value as `count`.
+- **[frontend validation]**
+  - `frontend/src/views/GoogleData.vue`: Blocks JSON uploads and wrong CSV schemas; shows inserted row count on success.
+  - `frontend/src/views/BinomGoogle.vue`: Validates semicolon CSV with `Name;Revenue` headers; shows inserted row count.
+- **[UI polish]** Unified toolbar control heights (`h-10 text-sm`) for text inputs, selects, file inputs, links, and buttons.
+- **[favicon]** Added `<link rel="icon" ...>` in `frontend/index.html` and optional data-URL fallback to reduce 404s.
+- **[sample data]** Added downloadable Google CSV sample under `/samples/google_sample.csv`.
+
+## Sample Data
+
+- **Google CSV sample**: `frontend/public/samples/google_sample.csv`
+  - Available at `http://localhost:5173/samples/google_sample.csv` and via the "Download Sample" button on `/google`.
+  - Columns: `Account name, Customer ID, Campaign, Currency code, Cost` (comma-separated).
+
+## Troubleshooting
+
+- **PowerShell curl**: Use backtick ` for multiline; caret ^ is CMD-only.
+  ```powershell
+  curl.exe `
+    -F "file=@C:\path\to\google.csv" `
+    -F "date_from=2025-09-29" `
+    -F "date_to=2025-10-05" `
+    -F "report_type=weekly" `
+    http://localhost:5000/api/uploads/google
+  ```
+- **HTTP 400 on upload**: Means headers didn’t match expected fields. The response includes `expected` keys to adjust your CSV export.
+- **Counts show as 0**: Ensure you’re on the latest backend; the count label fix is in place.
+
+## API Behavior
+
+- `POST /api/uploads/google` and `POST /api/uploads/binom-google`:
+  - On success: `{ status: "ok", inserted: <N>, ... }` (HTTP 200)
+  - On header mismatch: `{ status: "no_rows", error: "no rows inserted...", expected: [...] }` (HTTP 400)
+- `GET /api/<source>/batches` now returns `date_from`, `date_to`, `report_type`, and `count` with accurate counts.
+
 ## Database Inspection
 - DBeaver (recommended): connect to `localhost:5432`, database `reports_db`, user `postgres`, password `postgres`, then expand `public` → `Tables`.
 - CLI:

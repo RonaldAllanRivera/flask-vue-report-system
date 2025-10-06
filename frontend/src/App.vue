@@ -1,60 +1,76 @@
 <template>
-  <div class="app">
-    <header class="header">
+  <div class="min-h-screen bg-slate-900 text-slate-200">
+    <header class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
       <h1>Reports Admin</h1>
-      <nav class="nav">
-        <div class="menu" tabindex="0">
-          <a href="#" class="menu-title" @click.prevent>
-            Google and Binom Reports Only ▾
-          </a>
-          <div class="dropdown">
-            <RouterLink to="/google">Google Data</RouterLink>
-            <RouterLink to="/binom-google">Binom Google Spent Data</RouterLink>
-            <RouterLink to="/google-binom-report">Google Binom Report</RouterLink>
+      <nav class="flex gap-3 relative">
+        <div ref="menuRef" class="relative group">
+          <button
+            ref="btnRef"
+            type="button"
+            class="inline-flex items-center gap-1 px-2.5 py-2 border border-slate-700 rounded-md bg-[#0b1220] text-slate-200 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400"
+            aria-haspopup="true"
+            :aria-expanded="isOpen ? 'true' : 'false'"
+            aria-controls="main-menu"
+            @click="toggle"
+          >
+            <span>Google and Binom Reports Only</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+          <div
+            id="main-menu"
+            role="menu"
+            :class="[
+              'absolute left-0 top-[120%] min-w-[260px] rounded-lg border border-[#1f2937] bg-[#111827] shadow-xl z-50',
+              isOpen ? 'block' : 'hidden',
+              'md:group-hover:block'
+            ]"
+          >
+            <RouterLink role="menuitem" class="block px-3 py-2 text-slate-200 hover:bg-slate-800 hover:text-cyan-300" to="/google" @click="closeMenu">Google Data</RouterLink>
+            <RouterLink role="menuitem" class="block px-3 py-2 text-slate-200 hover:bg-slate-800 hover:text-cyan-300" to="/binom-google" @click="closeMenu">Binom Google Spent Data</RouterLink>
+            <RouterLink role="menuitem" class="block px-3 py-2 text-slate-200 hover:bg-slate-800 hover:text-cyan-300" to="/google-binom-report" @click="closeMenu">Google Binom Report</RouterLink>
           </div>
         </div>
       </nav>
     </header>
-    <main class="container">
+    <ToastHost />
+    <main class="p-4">
       <RouterView />
     </main>
   </div>
 </template>
 
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import ToastHost from '@/components/ToastHost.vue'
 
-<style>
-:root {
-  color-scheme: dark;
-  --bg: #0f172a;
-  --fg: #e2e8f0;
-  --muted: #94a3b8;
-  --primary: #22d3ee;
-  --card: #111827;
+const isOpen = ref(false)
+const menuRef = ref<HTMLElement | null>(null)
+const btnRef = ref<HTMLButtonElement | null>(null)
+
+function toggle() {
+  isOpen.value = !isOpen.value
 }
-html, body, #app { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--fg); font-family: Inter, system-ui, Arial, sans-serif; }
-.header { display:flex; align-items:center; justify-content:space-between; padding: 12px 16px; border-bottom: 1px solid #1f2937; }
-.header h1 { font-size: 18px; margin: 0; }
-.nav { display:flex; gap: 12px; position: relative; }
-.nav a { color: var(--muted); text-decoration: none; }
-.nav a.router-link-active { color: var(--primary); }
-.menu { position: relative; }
-.menu-title { display:inline-block; padding: 8px 10px; border: 1px solid #1f2937; border-radius: 6px; background: #0b1220; color: var(--fg); }
-.menu:hover .menu-title, .menu:focus-within .menu-title { border-color: #374151; }
-.dropdown { display:none; position: absolute; top: 120%; left: 0; min-width: 260px; background: var(--card); border: 1px solid #1f2937; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,.35); padding: 6px 0; z-index: 50; }
-.menu:hover .dropdown, .menu:focus-within .dropdown { display:block; }
-.dropdown a { display:block; padding: 8px 12px; color: var(--fg); }
-.dropdown a:hover, .dropdown a.router-link-active { background: #1f2937; color: var(--primary); }
-.container { padding: 16px; }
-.card { background: var(--card); border: 1px solid #1f2937; border-radius: 8px; padding: 16px; }
-.label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-.input, select { padding: 8px; border-radius: 6px; border: 1px solid #334155; background: #0b1220; color: var(--fg); }
-.button { padding: 8px 12px; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; }
-.button.secondary { background: #334155; }
-.table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-.table th, .table td { padding: 8px; border-bottom: 1px solid #273041; text-align: right; }
-.table th:first-child, .table td:first-child { text-align: left; }
-.badge { padding: 2px 6px; border: 1px solid #374151; border-radius: 999px; font-size: 12px; color: var(--muted); }
-.row { display:flex; gap:12px; align-items:end; flex-wrap: wrap; }
-</style>
+function closeMenu() {
+  isOpen.value = false
+}
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    closeMenu()
+    btnRef.value?.focus()
+  }
+}
+function onClickOutside(e: MouseEvent) {
+  const root = menuRef.value
+  if (!root) return
+  if (!root.contains(e.target as Node)) closeMenu()
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  document.addEventListener('click', onClickOutside)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('click', onClickOutside)
+})
+</script>

@@ -1,45 +1,63 @@
 <template>
-  <div class="card">
-    <h2>Binom Google Spent</h2>
-    <div class="row">
+  <div class="rounded-lg border border-slate-800 bg-slate-900 p-4 md:p-6">
+    <h2 class="text-lg font-semibold mb-3">Binom Google Spent</h2>
+    <div class="flex flex-wrap items-end gap-3">
       <div>
-        <label class="label">Date From</label>
-        <input class="input" v-model="dateFrom" type="date" />
+        <label class="block text-xs text-slate-400 mb-1">Date From</label>
+        <input class="px-3 h-10 text-sm rounded-md border border-slate-700 bg-slate-800 text-slate-100" v-model="dateFrom" type="date" :disabled="preset!=='custom'" />
       </div>
       <div>
-        <label class="label">Date To</label>
-        <input class="input" v-model="dateTo" type="date" />
+        <label class="block text-xs text-slate-400 mb-1">Date To</label>
+        <input class="px-3 h-10 text-sm rounded-md border border-slate-700 bg-slate-800 text-slate-100" v-model="dateTo" type="date" :disabled="preset!=='custom'" />
       </div>
       <div>
-        <label class="label">Report Type</label>
-        <select v-model="reportType" class="input">
+        <label class="block text-xs text-slate-400 mb-1">Report Type</label>
+        <select v-model="reportType" class="px-3 h-10 text-sm rounded-md border border-slate-700 bg-slate-800 text-slate-100">
           <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
         </select>
       </div>
       <div>
-        <label class="label">CSV File (semicolon + quoted)</label>
-        <input class="input" type="file" @change="onFile" />
+        <label class="block text-xs text-slate-400 mb-1">Date Preset</label>
+        <select v-model="preset" class="px-3 h-10 text-sm rounded-md border border-slate-700 bg-slate-800 text-slate-100">
+          <option value="yesterday">Yesterday</option>
+          <option value="last7">Last 7 Days (ends yesterday)</option>
+          <option value="last14">Last 14 Days (ends yesterday)</option>
+          <option value="last30">Last 30 Days (ends yesterday)</option>
+          <option value="this_month">This Month to Date</option>
+          <option value="last_month">Last Month</option>
+          <option value="custom">Custom</option>
+        </select>
       </div>
-      <button class="button" @click="upload" :disabled="!file || !dateFrom || !dateTo">Upload</button>
-      <button class="button secondary" @click="loadBatches">Refresh Batches</button>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">CSV File (semicolon + quoted)</label>
+        <input class="px-3 h-10 text-sm rounded-md border border-slate-700 bg-slate-800 text-slate-100 file:mr-3 file:px-3 file:py-2 file:text-sm file:rounded-md file:border-0 file:bg-slate-700 file:text-slate-100" type="file" accept=".csv,text/csv" @change="onFile" />
+      </div>
+      <button class="px-3 h-10 text-sm rounded-md bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-50" @click="upload" :disabled="isUploading || !file || !hasValidRange">
+        <span v-if="isUploading">Uploading...</span>
+        <span v-else>Upload</span>
+      </button>
+      <button class="px-3 h-10 text-sm rounded-md bg-slate-700 hover:bg-slate-600 text-slate-100 disabled:opacity-50" @click="loadBatches" :disabled="isRefreshing">
+        <span v-if="isRefreshing">Refreshing...</span>
+        <span v-else>Refresh Batches</span>
+      </button>
     </div>
 
-    <table class="table" v-if="batches.length">
-      <thead>
+    <table class="min-w-full text-sm mt-3" v-if="batches.length">
+      <thead class="text-left text-slate-300">
         <tr>
-          <th>Date From</th>
-          <th>Date To</th>
-          <th>Report Type</th>
-          <th>Count</th>
+          <th class="px-3 py-2 border-b border-slate-800">Date From</th>
+          <th class="px-3 py-2 border-b border-slate-800">Date To</th>
+          <th class="px-3 py-2 border-b border-slate-800">Report Type</th>
+          <th class="px-3 py-2 border-b border-slate-800">Count</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="b in batches" :key="b.date_from + b.report_type">
-          <td>{{ b.date_from }}</td>
-          <td>{{ b.date_to }}</td>
-          <td><span class="badge">{{ b.report_type }}</span></td>
-          <td>{{ b.count }}</td>
+          <td class="px-3 py-2 border-b border-slate-800">{{ b.date_from }}</td>
+          <td class="px-3 py-2 border-b border-slate-800">{{ b.date_to }}</td>
+          <td class="px-3 py-2 border-b border-slate-800"><span class="inline-block px-2 py-0.5 text-xs rounded-full border border-slate-600 text-slate-300">{{ b.report_type }}</span></td>
+          <td class="px-3 py-2 border-b border-slate-800">{{ b.count }}</td>
         </tr>
       </tbody>
     </table>
@@ -47,34 +65,125 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { apiGet, apiPostForm } from '@/lib/api'
+import { useToastStore } from '@/stores/toast'
 
 const dateFrom = ref('')
 const dateTo = ref('')
 const reportType = ref('weekly')
 const file = ref<File | null>(null)
 const batches = ref<any[]>([])
+const isUploading = ref(false)
+const isRefreshing = ref(false)
+const toast = useToastStore()
+const preset = ref<'yesterday'|'last7'|'last14'|'last30'|'this_month'|'last_month'|'custom'>('last7')
+const hasValidRange = ref(false)
 
-function onFile(e: Event) {
+async function onFile(e: Event) {
   const t = e.target as HTMLInputElement
-  file.value = t.files?.[0] ?? null
+  const f = t.files?.[0] ?? null
+  if (!f) { file.value = null; return }
+  const ok = await validateSelectedFile(f)
+  file.value = ok ? f : null
+  if (!ok) t.value = ''
+}
+
+function isJSONText(s: string): boolean {
+  const i = s.search(/\S/)
+  if (i === -1) return false
+  const ch = s[i]
+  return ch === '{' || ch === '['
+}
+
+function normalize(s: string): string { return s.trim().toLowerCase() }
+
+async function validateSelectedFile(f: File): Promise<boolean> {
+  if (f.name.toLowerCase().endsWith('.json')) {
+    toast.error('JSON file detected. Please upload a semicolon-separated CSV for Binom Google Spent.')
+    return false
+  }
+  const chunk = await f.slice(0, 4096).text()
+  if (isJSONText(chunk)) {
+    toast.error('JSON content detected. Please upload a CSV for Binom Google Spent.')
+    return false
+  }
+  const lines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  const header = lines.find(l => l.includes(';') || l.includes(',')) || ''
+  const hl = normalize(header)
+  // Reject Google CSV (comma with Campaign/Cost)
+  if (header.includes(',') && hl.includes('campaign') && hl.includes('cost')) {
+    toast.error('This looks like a Google CSV. Please use the Google Data page.')
+    return false
+  }
+  // Expect Binom CSV to be semicolon and include name & revenue
+  if (!header.includes(';')) {
+    toast.error('CSV appears not semicolon-separated. Expected Binom CSV with semicolons.')
+    return false
+  }
+  if (!(hl.includes('name') && hl.includes('revenue'))) {
+    toast.error('CSV header must include Name and Revenue columns for Binom Google Spent.')
+    return false
+  }
+  return true
 }
 
 async function upload() {
   if (!file.value) return
-  const form = new FormData()
-  form.append('file', file.value)
-  form.append('date_from', dateFrom.value)
-  form.append('date_to', dateTo.value)
-  form.append('report_type', reportType.value)
-  await apiPostForm(`/api/uploads/binom-google`, form)
-  await loadBatches()
+  isUploading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', file.value)
+    form.append('date_from', dateFrom.value)
+    form.append('date_to', dateTo.value)
+    form.append('report_type', reportType.value)
+    const res: any = await apiPostForm(`/api/uploads/binom-google`, form)
+    if (res?.status === 'ok' && (res?.inserted ?? 0) > 0) {
+      toast.success(`Uploaded: ${res.inserted} row(s)`) 
+    } else {
+      toast.error('Upload accepted but no rows inserted')
+    }
+    await loadBatches()
+  } catch (e: any) {
+    toast.error(`Upload failed: ${e?.message ?? e}`)
+  } finally {
+    isUploading.value = false
+  }
 }
 
 async function loadBatches() {
-  batches.value = await apiGet<any[]>(`/api/binom-google/batches`).then(r => (r as any).batches ?? [])
+  isRefreshing.value = true
+  try {
+    batches.value = await apiGet<any[]>(`/api/binom-google/batches`).then(r => (r as any).batches ?? [])
+    if (batches.value.length) toast.info(`Loaded ${batches.value.length} batch group(s)`) 
+  } catch (e: any) {
+    toast.error(`Failed to load batches: ${e?.message ?? e}`)
+  } finally {
+    isRefreshing.value = false
+  }
 }
 
 loadBatches()
+
+function fmt(d: Date): string { return d.toISOString().slice(0,10) }
+function startOfMonth(d: Date): Date { return new Date(d.getFullYear(), d.getMonth(), 1) }
+function endOfMonth(d: Date): Date { return new Date(d.getFullYear(), d.getMonth()+1, 0) }
+function applyPreset() {
+  const today = new Date()
+  const yesterday = new Date(today); yesterday.setDate(today.getDate()-1)
+  let from = '', to = ''
+  switch (preset.value) {
+    case 'yesterday': from = fmt(yesterday); to = fmt(yesterday); break
+    case 'last7': { const f = new Date(yesterday); f.setDate(yesterday.getDate()-6); from = fmt(f); to = fmt(yesterday); break }
+    case 'last14': { const f = new Date(yesterday); f.setDate(yesterday.getDate()-13); from = fmt(f); to = fmt(yesterday); break }
+    case 'last30': { const f = new Date(yesterday); f.setDate(yesterday.getDate()-29); from = fmt(f); to = fmt(yesterday); break }
+    case 'this_month': from = fmt(startOfMonth(today)); to = fmt(today); break
+    case 'last_month': { const lm = new Date(today.getFullYear(), today.getMonth()-1, 1); from = fmt(startOfMonth(lm)); to = fmt(endOfMonth(lm)); break }
+    case 'custom': break
+  }
+  if (preset.value !== 'custom') { dateFrom.value = from; dateTo.value = to }
+  hasValidRange.value = !!dateFrom.value && !!dateTo.value
+}
+watch(preset, applyPreset, { immediate: true })
+watch([dateFrom, dateTo], () => { hasValidRange.value = !!dateFrom.value && !!dateTo.value })
 </script>
