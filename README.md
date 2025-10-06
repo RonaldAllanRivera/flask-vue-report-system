@@ -36,6 +36,17 @@ A web application for importing CSV/JSON data from multiple sources, generating 
   - SQLAlchemy models for datasets and invoices
   - Initial Alembic migration created and applied
   - Uploads/list/delete endpoints stubbed (persistence to be implemented next)
+ - Phase 2 (Ingestion + Frontend + Google Binom Report) — completed
+   - Ingestion persistence:
+     - `POST /api/uploads/google` (CSV: Account/Account Name, Campaign, Cost)
+     - `POST /api/uploads/binom-google` (CSV; semicolon-delimited; Name, Leads, Revenue; skips revenue <= 0)
+     - Batch views: `GET /api/google/batches`, `GET /api/binom-google/batches`
+     - Delete: `DELETE /api/google`, `DELETE /api/binom-google` (filter by `date_from`, `date_to`, `report_type`)
+   - Reports:
+     - `GET /api/reports/google-binom` joining spend vs revenue by normalized campaign/name with summary totals
+   - Frontend (Vue 3 + Vite + TS + Router + Pinia):
+     - Pages: Google Data, Binom Google Spent Data, Google Binom Report
+     - Top nav: “Google and Binom Reports Only” dropdown menu
 
 ## Local Development
 ### Backend
@@ -58,7 +69,8 @@ flask --app app run --port 5000
 - Install:
 ```bash
 cd frontend
-npm ci
+# First time: generate lockfile and install
+npm install
 cp .env.example .env  # set VITE_API_BASE_URL (e.g., http://localhost:5000)
 npm run dev
 ```
@@ -86,12 +98,23 @@ Run while the server is up at http://localhost:5000
 # Health
 curl http://localhost:5000/health
 
-# Uploads (stubs)
-curl -X POST http://localhost:5000/api/uploads/google
-curl http://localhost:5000/api/google/batches
+# Upload Google CSV (comma CSV with headers: Account, Campaign, Cost)
+# Windows PowerShell: use curl.exe and adjust file path
+curl.exe -F "file=@google.csv" -F "date_from=2025-09-29" -F "date_to=2025-10-05" -F "report_type=weekly" \
+  http://localhost:5000/api/uploads/google
 
-# Reports (stubs)
+# Upload Binom Google CSV (semicolon; quoted; headers: Name, Leads, Revenue)
+curl.exe -F "file=@binom_google.csv" -F "date_from=2025-09-29" -F "date_to=2025-10-05" -F "report_type=weekly" \
+  http://localhost:5000/api/uploads/binom-google
+
+# Batches
+curl http://localhost:5000/api/google/batches
+curl http://localhost:5000/api/binom-google/batches
+
+# Google Binom Report
 curl "http://localhost:5000/api/reports/google-binom?report_type=weekly&date_from=2025-09-29&date_to=2025-10-05&roi_last_mode=full"
+
+# (Stub) Rumble Binom Report
 curl "http://localhost:5000/api/reports/rumble-binom?report_type=weekly&date_from=2025-09-29&date_to=2025-10-05"
 
 # Invoices (stubs)
@@ -114,18 +137,4 @@ flask-vue-report-system/
     models/
     routes/
     services/
-    templates/  # invoice PDFs
-    alembic/
-    .env.example
-    requirements.txt
-  frontend/
-    src/
-    .env.example
-    package.json
-  PLAN.md
-  CHANGELOG.md
-  DEPLOYMENT_PLAN.md
-```
-
-## License
 MIT

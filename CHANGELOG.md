@@ -1,6 +1,18 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2025-10-06
+### Added
+- Phase 2: Ingestion + Frontend + Google Binom Report
+  - Backend ingestion persistence:
+    - `POST /api/uploads/google` (CSV parser)
+    - `POST /api/uploads/binom-google` (semicolon CSV; skips revenue <= 0)
+    - Batch listings: `GET /api/google/batches`, `GET /api/binom-google/batches`
+    - Delete endpoints for both sources
+  - Google Binom report endpoint `GET /api/reports/google-binom` with spend/revenue join and summary
+  - Frontend scaffold (Vite + Vue 3 + TS + Router + Pinia) with pages for Google, Binom Google, and Report
+  - Top menu consolidated to “Google and Binom Reports Only” with dropdown
+
 ## [0.2.0] - 2025-10-06
 ### Added
 - Phase 0 Bootstrap completed:
